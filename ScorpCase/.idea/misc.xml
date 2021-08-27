@@ -4,9 +4,11 @@
     <option name="filePathToZoomLevelMap">
       <map>
         <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/activity_main.xml" value="0.23697916666666666" />
+        <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/noone_item.xml" value="0.2421875" />
         <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/person.xml" value="0.36666666666666664" />
         <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/person_item.xml" value="0.1" />
         <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/person_not_found.xml" value="0.18072916666666666" />
+        <entry key="..\:/Users/b2172/Workspace/StudioProjects/ScorpCase/app/src/main/res/layout/seekbar.xml" value="0.1453125" />
       </map>
     </option>
   </component>

@@ -3,102 +3,153 @@ package com.myapplication
 import DataSource
 import FetchError
 import FetchResponse
-import Person
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.util.Log
 import android.view.View
-import android.widget.Toast
+import android.widget.ProgressBar
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlin.random.Random
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var recyclerView: RecyclerView
-    private val tag: String = "MainActivityDebug"
-    private lateinit var people: MutableList<Person>
-    private lateinit var adapter: PeopleAdapter
+    private var pullToRefreshRecyclerView: PullToRefreshRecyclerView? = null
+    private val TAG: String = "MainActivityDebug"
+    private var adapter: PeopleAdapter? = null
+    private var linearLayoutManager: LinearLayoutManager? = null
+    private var progressBar: ProgressBar? = null
+    private var progressBarIndeterminate: ProgressBar? = null
 
-    private var scrollState: Int? = RecyclerView.SCROLL_STATE_IDLE;
-    private var lastScroll: Int = 0
 
     // Simple MutexLock
     private var stillFetching: Boolean = true
 
+    private var next: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        adapter = PeopleAdapter(mutableListOf())
 
-        people = mutableListOf()
-        adapter = PeopleAdapter(people)
+        linearLayoutManager = LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
 
-        recyclerView = findViewById(R.id.people_recycler_view)
-        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
-        recyclerView.adapter = adapter
+        pullToRefreshRecyclerView = findViewById(R.id.people_recycler_view)
+        pullToRefreshRecyclerView?.layoutManager = linearLayoutManager
+        pullToRefreshRecyclerView?.adapter = adapter
 
+        progressBar = findViewById(R.id.progress)
+        progressBarIndeterminate = findViewById(R.id.progress_indeterminate)
+
+        pullToRefreshRecyclerView?.stillFetching = true
         fetch { size ->
-            Log.i(tag, "size: $size")
-            stillFetching = false
+//            Log.i(TAG, "size: $size")
+            pullToRefreshRecyclerView?.stillFetching = false
         }
 
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+        pullToRefreshRecyclerView?.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 val lastItem: View? = recyclerView.getChildAt(recyclerView.childCount - 1)
                 if (lastItem != null) {
-//                    Log.i(
-//                        tag,
-//                        "onScrollStateChanged: ${lastItem.bottom + recyclerView.paddingBottom - recyclerView.height}"
-//                    )
-
-                    // Instagram-like infinite scrolling
-//                    if (lastItem.bottom + recyclerView.paddingBottom - recyclerView.height == 0) {
-//                        Log.i(tag, "onScrollStateChanged: Scroll End reached")
-                    if (lastItem.bottom + recyclerView.paddingBottom - recyclerView.height < 150) {
+//                    Log.i(tag,"onScrollStateChanged: ${lastItem.bottom + recyclerView.paddingBottom - recyclerView.height}")
+                    // Instagram-like infinite scrolling feature
+                    if (adapter?.getPeopleSize()!! <= linearLayoutManager!!.findLastVisibleItemPosition() + 5) {
                         if (!stillFetching) {
                             stillFetching = true
-                            fetch { stillFetching = false }
+                            pullToRefreshRecyclerView?.stillFetching = true
+                            fetch {
+                                stillFetching = false
+                                pullToRefreshRecyclerView?.stillFetching = false
+                            }
                         }
-//                    } else if () {
-//                        when (newState) {
-//                            RecyclerView.SCROLL_STATE_IDLE -> {
-//                                Log.i(tag, "onScrollStateChanged: idle")
-//                            }
-//                            RecyclerView.SCROLL_STATE_DRAGGING -> {
-//                                Log.i(tag, "onScrollStateChanged: dragging")
-//                            }
-//                            RecyclerView.SCROLL_STATE_SETTLING -> {
-//                                Log.i(tag, "onScrollStateChanged: settling")
-//                            }
-//                        }
                     }
                 }
-
-                scrollState = newState
-            }
-
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
-                lastScroll = dx
             }
         })
+
+        pullToRefreshRecyclerView?.onPullListener =
+            object : PullToRefreshRecyclerView.OnPullListener {
+                override fun onPull(percent: Float) {
+                    setProgressBar(percent)
+                }
+
+                override fun onRefresh(stillFetching: Boolean) {
+                    refreshPeople(stillFetching)
+                }
+
+                override fun onCancel() {
+                    progressBar?.visibility = View.GONE
+                    progressBarIndeterminate?.visibility = View.GONE
+                }
+            }
     }
 
     private fun fetch(onComplete: (size: Int) -> Unit) {
+//        Log.i(TAG, "fetch: $next")
         DataSource().fetch(
-            next = Random.nextInt(15, 16)
-                .toString() // + "asd" // uncomment this to check what happens if there's an error
+            next = next
         ) { fetchResponse: FetchResponse?, fetchError: FetchError? ->
             if (null != fetchError) {
-                Log.i(tag, "fetchError: $fetchError")
-                Toast.makeText(this, fetchError.errorDescription, Toast.LENGTH_SHORT).show()
+                handleError(fetchError.errorDescription)
             } else if (null != fetchResponse) {
-                Log.i(tag, "fetchResponse: $fetchResponse")
-                adapter.addPeople(fetchResponse.people)
-                onComplete(fetchResponse.people.size)
-            } else {
-                Log.w(tag, "Assume internal server error from DataSource")
-                onComplete(0)
+                if (fetchResponse.people.isEmpty()) {
+                    noOneIsHere()
+                } else {
+                    adapter?.addPeople(fetchResponse.people)
+                    next = fetchResponse.next
+                    someoneIsHere()
+                }
+            }
+            progressBarIndeterminate?.visibility = View.GONE
+            progressBar?.visibility = View.GONE
+            onComplete(fetchResponse?.people?.size ?: 0)
+        }
+    }
+
+    private fun handleError(errorDescription: String) {
+        stillFetching = false
+        adapter?.clearPeople(errorDescription)
+        pullToRefreshRecyclerView?.error = true
+    }
+
+    private fun noOneIsHere() {
+//        Log.i(TAG, "noOneIsHere: ")
+        stillFetching = false
+        adapter?.clearPeople("No one is here!")
+        pullToRefreshRecyclerView?.noOne = true
+    }
+
+    private fun someoneIsHere() {
+//        Log.i(TAG, "someoneIsHere: ")
+        stillFetching = false
+    }
+
+    //! Progress is not working
+    private fun setProgressBar(percent: Float) {
+        progressBar?.visibility = View.VISIBLE
+        progressBarIndeterminate?.visibility = View.GONE
+        if (percent >= 1F) {
+            progressBar?.alpha = 1F
+            progressBar?.progress = 100
+        } else {
+            progressBar?.alpha = percent / 2
+            progressBar?.progress = (percent).roundToInt()
+        }
+    }
+
+    private fun refreshPeople(stillFetching: Boolean) {
+        pullToRefreshRecyclerView?.noOne = false
+        pullToRefreshRecyclerView?.error = false
+        if (stillFetching) return
+        progressBar?.visibility = View.GONE
+        progressBarIndeterminate?.visibility = View.VISIBLE
+        if (!this.stillFetching) {
+            pullToRefreshRecyclerView?.stillFetching = true
+            this.stillFetching = true
+            adapter?.clearPeople()
+            fetch {
+                pullToRefreshRecyclerView?.stillFetching = false
+                this.stillFetching = false
+                progressBarIndeterminate?.visibility = View.GONE
             }
         }
     }
